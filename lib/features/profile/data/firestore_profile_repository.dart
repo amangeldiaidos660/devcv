@@ -105,24 +105,60 @@ class FirestoreProfileRepository implements ProfileRepository {
         Validators.city(profile.city) ??
         Validators.birthDate(profile.birthDate);
     if (message != null) throw AppFailure(message);
-    final sanitized = DeveloperProfile(
-      uid: user.uid,
-      email: email,
+    final sanitized = profile.copyWith(
       fullName: profile.fullName.trim(),
-      birthDate: profile.birthDate,
       city: profile.city.trim(),
     );
     try {
       await _firestore.runTransaction((transaction) async {
         final reference = _document(user.uid);
         final existing = await transaction.get(reference);
-        transaction.set(
-          reference,
-          ProfileMapper.toFirestore(sanitized, isNew: !existing.exists),
-          SetOptions(merge: true),
+        final data = ProfileMapper.toFirestore(
+          sanitized,
+          isNew: !existing.exists,
         );
+        data['email'] = email;
+        if (existing.exists) {
+          for (final key in [
+            'contacts',
+            'preferences',
+            'aboutMe',
+            'avatarUrl',
+            'avatarPath',
+          ]) {
+            data.remove(key);
+          }
+        }
+        transaction.set(reference, data, SetOptions(merge: true));
       });
     } on FirebaseException catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
+  Future<void> updateDetails(String uid, Map<String, Object?> details) async {
+    final user = _auth.currentUser;
+    if (user == null || user.uid != uid || !user.emailVerified) {
+      throw const AppFailure('Войдите в свой аккаунт');
+    }
+    const allowed = {
+      'contacts',
+      'preferences',
+      'aboutMe',
+      'avatarUrl',
+      'avatarPath',
+    };
+    if (details.keys.any((key) => !allowed.contains(key))) {
+      throw const AppFailure('Некорректные поля профиля');
+    }
+    try {
+      await _document(uid)
+          .update({...details, 'updatedAt': FieldValue.serverTimestamp()});
+    } on FirebaseException catch (error) {
+      if (error.code == 'not-found') {
+        throw const AppFailure('Сначала сохраните основную информацию профиля');
+      }
       throw _failure(error);
     }
   }

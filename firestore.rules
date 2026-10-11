@@ -1,35 +1,97 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isOwner(userId) {
-      return request.auth != null
-        && request.auth.uid == userId
-        && request.auth.token.email_verified == true;
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true;
     }
-
-    function validProfile(userId) {
-      let data = request.resource.data;
-      return data.keys().hasAll(['uid', 'fullName', 'birthDate', 'city', 'email', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'fullName', 'birthDate', 'city', 'email', 'createdAt', 'updatedAt'])
-        && data.uid == userId
-        && data.email == request.auth.token.email
-        && data.fullName is string
-        && data.fullName.size() >= 2 && data.fullName.size() <= 120
-        && data.fullName.matches('.*\\S.*')
-        && data.city is string
-        && data.city.size() >= 2 && data.city.size() <= 120
-        && data.city.matches('.*\\S.*')
-        && data.birthDate is timestamp && data.birthDate <= request.time
-        && data.createdAt is timestamp
-        && data.updatedAt == request.time;
+    function text(value, maximum) { return value is string && value.size() <= maximum; }
+    function requiredText(value) { return text(value, 200) && value.size() > 0 && value.matches('.*\\S.*'); }
+    function contactsValid(value) {
+      return value is map
+        && value.keys().hasAll(['phone','githubUrl','linkedinUrl','telegram','website','visible','preferred'])
+        && value.keys().hasOnly(['phone','githubUrl','linkedinUrl','telegram','website','visible','preferred'])
+        && text(value.phone,25) && text(value.githubUrl,2000) && text(value.linkedinUrl,2000)
+        && text(value.telegram,33) && text(value.website,2000)
+        && value.visible is list && value.preferred is list && value.preferred.size() <= 2
+        && value.visible.hasOnly(['email','phone','github','linkedin','telegram','website'])
+        && value.preferred.hasOnly(['email','phone','github','linkedin','telegram','website']);
     }
-
-    match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && validProfile(userId)
-        && request.resource.data.createdAt == request.time;
-      allow update: if isOwner(userId) && validProfile(userId)
-        && request.resource.data.createdAt == resource.data.createdAt;
+    function preferencesValid(value) {
+      return value is map
+        && value.keys().hasAll(['workModes','employmentTypes','salaryEnabled','minimumSalary','currency','relocation','businessTrips'])
+        && value.keys().hasOnly(['workModes','employmentTypes','salaryEnabled','minimumSalary','currency','relocation','businessTrips'])
+        && value.workModes is list && value.workModes.hasOnly(['office','hybrid','remote'])
+        && value.employmentTypes is list && value.employmentTypes.hasOnly(['fullTime','partTime','project','internship'])
+        && value.salaryEnabled is bool && value.relocation is bool
+        && value.currency in ['KZT','USD','EUR','RUB'] && value.businessTrips in ['ready','sometimes','notReady']
+        && (!value.salaryEnabled || (value.minimumSalary is int && value.minimumSalary > 0 && value.minimumSalary <= 1000000000));
+    }
+    function profileValid(uid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['uid','fullName','birthDate','city','email','createdAt','updatedAt'])
+        && d.keys().hasOnly(['uid','fullName','birthDate','city','email','createdAt','updatedAt','contacts','preferences','aboutMe','avatarUrl','avatarPath'])
+        && d.uid == uid && d.email == request.auth.token.email
+        && requiredText(d.fullName) && d.fullName.size() >= 2 && d.fullName.size() <= 120
+        && requiredText(d.city) && d.city.size() >= 2 && d.city.size() <= 120
+        && d.birthDate is timestamp && d.birthDate <= request.time
+        && d.createdAt is timestamp && d.updatedAt == request.time
+        && (!('contacts' in d) || contactsValid(d.contacts))
+        && (!('preferences' in d) || preferencesValid(d.preferences))
+        && (!('aboutMe' in d) || text(d.aboutMe,500))
+        && (!('avatarUrl' in d) || d.avatarUrl == null || text(d.avatarUrl,2000))
+        && (!('avatarPath' in d) || d.avatarPath == null || (d.avatarPath is string && d.avatarPath.matches('users/' + uid + '/profile/avatar_[0-9]+\\.(jpg|png)')));
+    }
+    function entryValid(uid, kind) {
+      let d = request.resource.data;
+      return d.createdAt is timestamp && d.updatedAt == request.time && (
+        (kind == 'experiences' && d.keys().hasAll(['company','position','startDate','endDate','isCurrent','responsibilities','achievements','createdAt','updatedAt'])
+          && d.keys().hasOnly(['company','position','startDate','endDate','isCurrent','responsibilities','achievements','createdAt','updatedAt'])
+          && requiredText(d.company) && requiredText(d.position) && d.startDate is timestamp && d.startDate <= request.time
+          && d.isCurrent is bool && ((d.isCurrent && d.endDate == null) || (!d.isCurrent && d.endDate is timestamp && d.endDate >= d.startDate && d.endDate <= request.time))
+          && text(d.responsibilities,10000) && text(d.achievements,10000))
+        || (kind == 'education' && d.keys().hasAll(['institution','degree','fieldOfStudy','startYear','endYear','isCurrent','createdAt','updatedAt'])
+          && d.keys().hasOnly(['institution','degree','fieldOfStudy','startYear','endYear','isCurrent','createdAt','updatedAt'])
+          && requiredText(d.institution) && requiredText(d.degree) && text(d.fieldOfStudy,200)
+          && d.startYear is int && d.startYear >= 1900 && d.startYear <= request.time.year()
+          && d.isCurrent is bool && ((d.isCurrent && d.endYear == null) || (!d.isCurrent && d.endYear is int && d.endYear >= d.startYear && d.endYear <= request.time.year())))
+        || (kind == 'projects' && d.keys().hasAll(['name','description','technologies','projectType','experienceId','resourceUrl','createdAt','updatedAt'])
+          && d.keys().hasOnly(['name','description','technologies','projectType','experienceId','resourceUrl','createdAt','updatedAt'])
+          && requiredText(d.name) && text(d.description,10000) && d.technologies is list && d.technologies.size() <= 100
+          && text(d.resourceUrl,2000) && d.projectType in ['work','freelance','personal']
+          && ((d.projectType == 'work' && d.experienceId is string && exists(/databases/$(database)/documents/users/$(uid)/experiences/$(d.experienceId)))
+            || (d.projectType != 'work' && d.experienceId == null)))
+        || (kind == 'certificates' && d.keys().hasAll(['name','issuer','issueDate','credentialUrl','createdAt','updatedAt'])
+          && d.keys().hasOnly(['name','issuer','issueDate','credentialUrl','createdAt','updatedAt'])
+          && requiredText(d.name) && requiredText(d.issuer) && d.issueDate is timestamp && d.issueDate <= request.time && text(d.credentialUrl,2000))
+        || (kind == 'skills' && d.keys().hasAll(['name','category','createdAt','updatedAt'])
+          && d.keys().hasOnly(['name','category','createdAt','updatedAt']) && requiredText(d.name) && d.name.size() <= 80
+          && d.category in ['programmingLanguage','framework','database','devops','testing','tools','other'])
+        || (kind == 'languages' && d.keys().hasAll(['language','level','createdAt','updatedAt'])
+          && d.keys().hasOnly(['language','level','createdAt','updatedAt']) && requiredText(d.language) && d.language.size() <= 80
+          && d.level in ['a1','a2','b1','b2','c1','c2','native'])
+      );
+    }
+    function resumeValid() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['position','includedSections','selectedExperienceIds','selectedEducationIds','selectedProjectIds','selectedCertificateIds','selectedSkillIds','selectedLanguageIds','showPhoto','showSalary','updatedAt'])
+        && d.keys().hasOnly(['position','includedSections','selectedExperienceIds','selectedEducationIds','selectedProjectIds','selectedCertificateIds','selectedSkillIds','selectedLanguageIds','showPhoto','showSalary','updatedAt'])
+        && requiredText(d.position) && d.position.size() <= 120
+        && d.includedSections is list && d.includedSections.hasAll(['basic','contacts'])
+        && d.includedSections.hasOnly(['basic','photo','contacts','about','experience','education','projects','certificates','skills','languages','preferences'])
+        && d.selectedExperienceIds is list && d.selectedEducationIds is list && d.selectedProjectIds is list
+        && d.selectedCertificateIds is list && d.selectedSkillIds is list && d.selectedLanguageIds is list
+        && d.showPhoto is bool && d.showSalary is bool && d.updatedAt == request.time;
+    }
+    match /users/{uid} {
+      allow get: if owner(uid);
+      allow create: if owner(uid) && profileValid(uid) && request.resource.data.createdAt == request.time;
+      allow update: if owner(uid) && profileValid(uid) && request.resource.data.createdAt == resource.data.createdAt;
+      match /{kind}/{id} {
+        allow read: if owner(uid) && kind in ['experiences','education','projects','certificates','skills','languages','resumeConfigs'];
+        allow create: if owner(uid) && (kind == 'resumeConfigs' ? (id == 'default' && resumeValid()) : (entryValid(uid,kind) && request.resource.data.createdAt == request.time));
+        allow update: if owner(uid) && (kind == 'resumeConfigs' ? (id == 'default' && resumeValid()) : (entryValid(uid,kind) && request.resource.data.createdAt == resource.data.createdAt));
+        allow delete: if owner(uid) && kind in ['experiences','education','projects','certificates','skills','languages'];
+      }
     }
   }
 }

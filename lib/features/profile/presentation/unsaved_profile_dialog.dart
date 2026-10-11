@@ -6,7 +6,7 @@ Future<bool> confirmLeaveProfile(BuildContext context) async =>
       builder: (context) => AlertDialog(
         title: const Text('Профиль не сохранён'),
         content: const Text(
-          'Перейти без сохранения? При переключении разделов введённые данные останутся в форме.',
+          'Вернуться без сохранения? Изменения в этой форме будут потеряны.',
         ),
         actions: [
           TextButton(

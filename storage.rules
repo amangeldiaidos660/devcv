@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/profile/{fileName} {
+      function owner() { return request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true; }
+      allow read, delete: if owner();
+      allow create, update: if owner() && fileName.matches('avatar_[0-9]+\\.(jpg|png)')
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg','image/png'];
+    }
+  }
+}

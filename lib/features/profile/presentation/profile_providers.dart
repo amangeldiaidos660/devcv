@@ -10,6 +10,9 @@ import '../domain/profile_repository.dart';
 final profileRepositoryProvider = Provider<ProfileRepository>(
   (ref) => getIt<ProfileRepository>(),
 );
+final authEmailProvider = Provider<String>(
+  (ref) => ref.watch(authSessionProvider).asData?.value?.email ?? '',
+);
 
 final currentProfileProvider = StreamProvider.autoDispose<DeveloperProfile?>((
   ref,

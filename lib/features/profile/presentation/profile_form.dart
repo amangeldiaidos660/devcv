@@ -120,11 +120,16 @@ class _ProfileFormState extends ConsumerState<ProfileForm> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop || busy) return;
         if (await confirmLeaveProfile(context) && context.mounted) {
-          context.goNamed(RouteNames.home);
+          ref.read(profileDirtyProvider.notifier).setDirty(false);
+          if (context.canPop()) {
+            context.pop();
+          } else {
+            context.goNamed(RouteNames.profile);
+          }
         }
       },
       child: FormPage(
-        title: 'Профиль',
+        title: 'Основная информация',
         child: Form(
           key: _form,
           child: Column(

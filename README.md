@@ -4,183 +4,221 @@ Developer Profile & Resume Builder для Android и iOS.
 Application ID: `kz.aidos.devcv`. Firebase project: `devcv-ac143`.
 Минимальные версии: Android API 24 и iOS 15.
 
-## Архитектура
+## Реализованный MVP
 
-Существующие Firebase initialization, GetIt, DioClient, Hive cache и тема переиспользуются.
+Существующие Email/Password, verification, Google Sign-In, password reset, logout и auth guards сохранены.
+Home показывает приветствие, заполнение профиля, статистику и переход к созданию резюме.
+Profile содержит карточки основной информации, контактов, опыта, образования,
+проектов, сертификатов, навыков, языков, предпочтений и текста «О себе».
 
-- `features/auth/domain`: AuthUser и контракт AuthRepository.
-- `features/auth/data`: FirebaseAuthRepository, Google Sign-In 7 и преобразование ошибок.
-- `features/auth/presentation`: Riverpod auth session/actions и формы входа, регистрации, сброса пароля и подтверждения email.
-- `features/profile/domain`: DeveloperProfile, ProfileRepository и расчёт заполнения.
-- `features/profile/data`: FirestoreProfileRepository и ProfileMapper для Firestore/Hive.
-- `features/profile/presentation`: Riverpod profile/actions, форма и состояния loading/error/new/data.
-- `app/router`: один GoRouter, auth redirect и StatefulShellRoute.indexedStack.
-- `app/di`: регистрации существующих сервисов и новых Repository через GetIt.
-- Provider + SharedPreferences продолжают управлять темой. Riverpod управляет Auth/Profile.
+- Контакты: email из Auth, телефон, GitHub, LinkedIn, Telegram, сайт; видимость в резюме и максимум два preferred contacts.
+- Фото необязательно: в текущем режиме Spark показываются инициалы, загрузка отключена, Profile → Resume → PDF работает без Storage.
+- CRUD шести типов записей: отдельные формы, подтверждение удаления, loading/error/empty/data.
+- Рабочий проект требует существующий опыт. Удаление связанного опыта через приложение блокируется до изменения/удаления проектов.
+- Навыки вводятся вручную, отображаются chips и группируются по семи категориям. Языки: A1–C2 и Native.
+- Предпочтения: формат и занятость, зарплата, валюта KZT по умолчанию, переезд, командировки.
+- «О себе»: максимум 500 символов.
+- Resume Builder: позиция → разделы → конкретные элементы → A4 Preview → сохранение PDF.
+- Последнюю конфигурацию можно продолжить; PDF использует актуальные записи профиля, сохраняя выбор ID.
 
-Domain не импортирует Firebase, Flutter или Hive. UI вызывает Repository через Riverpod.
-Пароли и Google tokens не сохраняются в Firestore/Hive.
+Общие AppCard, SectionCard, кнопки, поля, chips, loading/empty states и карточки заполнения
+находятся в `lib/core/widgets/app_components.dart`. Material 3 использует палитру
+`#0C0C0D`, `#3F3F41`, `#F3F3F6`, `#868081`, `#FA4D2B`, `#DAB9AF`.
+Provider + SharedPreferences сохраняют тему; обе темы доступны в Settings.
+Wizard использует AnimatedSwitcher, Preview — fade/scale.
+
+## Архитектура и модели
+
+Clean Architecture и существующие GetIt, Riverpod, Provider, Hive и Dio переиспользуются.
+Domain не импортирует Firebase, Flutter или Hive. Firebase вызывается в data layer.
+
+| Часть | Ответственность |
+| --- | --- |
+| profile/domain | DeveloperProfile, ProfileContacts, CareerPreferences, WorkExperience, Education, Project, Certificate, Skill, Language; валидация и заполнение |
+| profile/data | ProfileMapper/DetailsMapper/EntryMapper; FirestoreProfileRepository, FirestoreEntryRepository, FirebaseAvatarRepository |
+| profile/presentation | Riverpod streams/actions; обзор, формы и списки |
+| resume/domain | ResumeConfig, ResumeDocument; контракты конфигурации, генерации и сохранения PDF |
+| resume/data | FirestoreResumeRepository, ResumePdfService, NativeResumeExporter |
+| resume/presentation | Riverpod draft/config/preview/actions; wizard, Preview и export |
+| app/di | GetIt регистрации Repository, image picker, PDF generator и exporter |
+
+Один EntryRepository обслуживает шесть типизированных списков без шести одинаковых реализаций.
+ProfileRepository расширен updateDetails; сохранение основной информации не стирает новые разделы.
+Потоки Firestore автоматически обновляют списки после add/edit/delete.
+Двойное сохранение блокируется; при выходе из изменённой формы требуется подтверждение.
+
+## Firestore и Storage
+
+```text
+users/{uid}
+  uid, fullName, birthDate, city, email, createdAt, updatedAt
+  contacts: phone, githubUrl, linkedinUrl, telegram, website, visible[], preferred[]
+  preferences: workModes[], employmentTypes[], salaryEnabled, minimumSalary,
+               currency, relocation, businessTrips
+  aboutMe, avatarUrl, avatarPath
+  experiences/{id}
+  education/{id}
+  projects/{id}
+  certificates/{id}
+  skills/{id}
+  languages/{id}
+  resumeConfigs/default
+```
+
+Повторяющиеся записи находятся в subcollections. ID берётся из document ID;
+createdAt/updatedAt задаются сервером. Данные изолированы по UID.
+ResumeConfig хранит position, includedSections, шесть списков выбранных ID, showPhoto, showSalary и updatedAt.
+PDF в Firestore/Storage не загружается.
+
+Фото: `users/{uid}/profile/avatar_{timestamp}.jpg` или `.png` в Firebase Storage.
+Будущая поддержка сохранена, но отключена по умолчанию через `ENABLE_FIREBASE_STORAGE=false`.
+В этом режиме GetIt использует DisabledAvatarRepository без обращения к FirebaseStorage.instance.
+Home/Profile игнорируют старые avatarUrl, Builder отключает фото с пояснением,
+а Preview игнорирует старый showPhoto и не создаёт Storage repository.
+Даже после включения Storage ошибка чтения фото не блокирует PDF: документ создаётся без фотографии.
+Включение позже, после настройки bucket и правил: `flutter run --dart-define=ENABLE_FIREBASE_STORAGE=true`.
+При замене сначала загружается новое, затем обновляется профиль и удаляется старое.
+Если обновление профиля не удалось, новое фото удаляется по возможности.
+URL и Storage path сохраняются в собственном документе пользователя.
+
+Hive general_cache хранит `profile:{uid}` и `resume:{uid}`.
+Последняя конфигурация доступна из кэша при временной сетевой ошибке;
+ошибка кэша не отменяет успешное серверное сохранение.
+Firestore offline support сохранён. Полная offline-first синхронизация не реализована.
+Пароли и OAuth tokens в Firestore/Hive не сохраняются.
+
+## Заполнение и длительность опыта
+
+| Раздел | Вес |
+| --- | --- |
+| Основная информация: имя, дата рождения, город | 20% |
+| Контакты | 10% |
+| Опыт | 20% |
+| Образование | 10% |
+| Навыки | 15% |
+| Проекты | 10% |
+| Языки | 5% |
+| Предпочтения: формат и занятость | 5% |
+| О себе | 5% |
+
+Фото и сертификаты не обязательны для 100%. Заполнение меньше 100% не блокирует PDF.
+Минимум для резюме: ФИО, позиция и один непустой контакт, видимый в резюме.
+
+Периоды опыта отображаются с месяцем и годом, длительность — годами и месяцами.
+Закрытый период включает последний месяц: август 2023 — январь 2024 = 6 месяцев.
+Текущий опыт показывает прошедшие месяцы: май 2024 — октябрь 2025 = 1 год 5 месяцев.
 
 ## Маршруты
 
-| Доступ | Путь | Имя RouteNames |
-| --- | --- | --- |
-| Public | /splash | splash |
-| Public | /login | login |
-| Public | /register | register |
-| Public | /forgot-password | forgotPassword |
-| Неподтверждённый аккаунт | /verify-email | verifyEmail |
-| Private | /home | home |
-| Private | /profile | profile |
-| Private | /resume | resume |
-| Private | /settings | settings |
+Public/auth и protected routes сохранены; нижняя навигация остаётся Home/Profile/Resume/Settings.
+Новые формы и wizard открываются поверх shell без нижней навигации.
 
-Splash использует поток Firebase userChanges без искусственной задержки.
-Без сессии private routes перенаправляются на Login; неподтверждённый email — на Verify Email.
-Подтверждённый аккаунт перенаправляется с public screens на Home.
-Нижняя навигация сохраняет состояние четырёх private разделов и не показывается на public screens.
-При уходе из изменённой формы показывается предупреждение; черновик сохраняется при переключении вкладок.
-Resume остаётся заглушкой.
+| Путь | Имя |
+| --- | --- |
+| /profile/basic | profileBasic |
+| /profile/details/:section | profileDetails |
+| /profile/entries/:kind | profileEntries |
+| /profile/entries/:kind/add | entryAdd |
+| /profile/entries/:kind/:id/edit | entryEdit |
+| /resume/create | resumeCreate |
+| /resume/preview | resumePreview |
 
-## Профиль и хранение
+`section`: contacts/preferences/about. `kind`: experience/education/project/certificate/skill/language.
+Edit открывается из списка с записью в extra; внешние deep links в edit не предусмотрены.
 
-Коллекция: `users/{firebaseUid}`.
-Поля: uid, fullName, birthDate, city, email, createdAt, updatedAt.
-Документ создаётся при первом сохранении; фиктивные имя/город не добавляются.
-Email берётся из Firebase Auth и не редактируется в форме.
-Дата рождения — Firestore Timestamp; createdAt/updatedAt — server timestamp.
-Сохранение выполняется транзакцией, createdAt сохраняется при обновлении.
+## PDF и сохранение на Android
 
-Заполнение текущего базового профиля: имя, дата рождения, город и подтверждённый email,
-по 25% за каждый элемент. Формула вынесена в ProfileCompletion для последующего расширения.
+ResumePdfService локально создаёт один светлый A4-шаблон: белый фон, тёмный текст, акцент `#FA4D2B`.
+Встроенные Noto Sans Regular/Bold поддерживают кириллицу и казахские символы; сеть для шрифтов не требуется.
+Лицензия OFL приложена в `assets/fonts/LICENSE.txt`.
 
-После серверного чтения профиль сохраняется в существующий general_cache box с ключом
-`profile:{uid}`. При временной сетевой ошибке допускается чтение этого кэша.
-Профили разных UID изолированы. Сложная offline-синхронизация не добавляется;
-обычные offline capabilities Firestore сохраняются. Настройки темы хранятся в SharedPreferences.
+Порядок: Header → О себе → Предпочтения/зарплата → Опыт → Проекты → Навыки → Образование → Сертификаты → Языки.
+Пустые значения и исключённые записи пропускаются. Длинные описания переносятся на следующие страницы.
+Preview использует те же PDF bytes, которые передаются на сохранение.
 
-DioClient остаётся без реальных запросов: connect timeout 15 секунд, receive timeout 20 секунд.
-Base URL задаётся через `--dart-define=API_BASE_URL=...`; по умолчанию https://example.com/api/.
-Debug логирование не пишет пароли, тела, заголовки или query-параметры.
+NativeResumeExporter вызывает `FilePicker.saveFile` с bytes и MIME `application/pdf`.
+На Android пользователь выбирает Downloads/Documents или другого доступного провайдера в системном диалоге.
+После записи показывается «Резюме сохранено» и возвращённый URI; отмена не считается успехом.
+URI может иметь вид `content://...`. Файл доступен в выбранной пользователем папке.
+Имя: `DevCV_Имя_Фамилия_Позиция.pdf`, недопустимые символы удаляются.
 
-## Firebase Console: обязательная настройка
+Добавленные зависимости: image_picker 1.2.4, pdf 3.13.1, printing 5.15.1, file_picker 13.1.0.
+В iOS Info.plist добавлено описание доступа к фотогалерее.
 
-В проекте devcv-ac143:
+## Firebase: действия пользователя
 
-1. Authentication → Sign-in method: включить Email/Password и Google, указать support email.
-2. Создать базу Cloud Firestore `(default)`, если она ещё не создана.
-3. Применить подготовленные `firestore.rules` через Firebase Console → Firestore → Rules
-   или выполнить из корня проекта:
+1. В devcv-ac143 оставить настроенные Authentication и Firestore `(default)`.
+2. На текущем Spark Storage настраивать не требуется: фото отключено.
+3. Опубликовать правила Firestore из корня проекта:
 
 ```powershell
 firebase deploy --only firestore:rules --project devcv-ac143
 ```
 
-Правила разрешают только get/create/update собственного `users/{uid}` для подтверждённого аккаунта.
-Они проверяют UID, email из auth token, допустимые поля, даты и server timestamps.
-Чтение всей коллекции, удаление и доступ к чужому профилю не разрешены.
-Правила подготовлены локально; деплой и проверка против реального backend в этом этапе не выполнялись.
+Можно вместо CLI вставить правила в соответствующие вкладки Rules Firebase Console.
+Firestore Rules разрешают подтверждённому пользователю доступ только к своему документу и перечисленным subcollections,
+проверяют поля, даты, timestamps, preferred contacts, зарплату и связь рабочего проекта с опытом.
+Storage Rules разрешают собственные JPEG/PNG avatar-файлы меньше 5 МБ. Публичного allow true нет.
+Эти правила сохранены для будущего включения Storage; сейчас их публикация не требуется.
+После перехода на поддерживаемый план и настройки bucket их можно опубликовать через
+`firebase deploy --only storage --project devcv-ac143`.
+Публикация и проверка на реальном Firebase backend пользователем ещё требуются.
+Без новых правил старые rules могут блокировать новые разделы.
 
-Core/Auth/Firestore/Messaging/Storage/Crashlytics уже подключены. Push и загрузка фото не реализованы.
+Core/Auth/Firestore/Messaging/Storage/Crashlytics остаются подключены.
 Автоматические FCM initialization и сбор Crashlytics по-прежнему отключены.
+Работающая Android Firebase/Auth конфигурация не заменялась.
 
-## Google Sign-In: Android
+Google Sign-In на iOS требует CLIENT_ID/REVERSED_CLIENT_ID в plist,
+URL scheme в Info.plist и реальный CLIENT_ID через `--dart-define=GOOGLE_IOS_CLIENT_ID=...`.
+iOS native flow проверяется на macOS с Xcode и подписью; Windows не позволяет подтвердить iOS сборку.
 
-Текущий google-services.json не содержит OAuth-клиентов. Google Sign-In требует обновления конфигурации.
-В Project settings → Android app kz.aidos.devcv добавьте отпечатки существующего debug keystore:
+## Проверки и запуск пользователем
 
-```text
-SHA-1: 4A:DA:21:93:94:0C:CE:B1:95:85:75:9A:20:BD:FE:90:F7:9C:33:2A
-SHA-256: 71:5A:5F:E2:8E:62:6B:CD:34:08:AA:D5:FF:71:8B:DC:57:EC:35:B2:FB:63:2B:D2:36:F4:AD:84:5F:F1:BB:0F
-```
-
-Значения получены из `C:\Users\amang\.android\debug.keystore`; для release нужна отдельная подпись
-и её отпечатки. После включения Google и добавления SHA скачайте новый google-services.json
-и замените `android/app/google-services.json`. В нём должен появиться OAuth client типа 3 (Web).
-Android Google Sign-In использует этот client ID автоматически. При необходимости можно передать
-реальный Web client ID через `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`.
-
-Обновление основной FlutterFire-конфигурации при установленных CLI:
+Проверки analyze/test выполняются после изменений; запуск на телефоне выполняет пользователь.
+Переменные задают кэши на D для текущего окна PowerShell.
 
 ```powershell
-dart pub global run flutterfire_cli:flutterfire configure --project=devcv-ac143 --platforms=android,ios --android-package-name=kz.aidos.devcv --ios-bundle-id=kz.aidos.devcv
-```
-
-## Google Sign-In: iOS
-
-Текущий GoogleService-Info.plist не содержит CLIENT_ID/REVERSED_CLIENT_ID.
-После включения Google скачайте новый plist для iOS app kz.aidos.devcv
-и замените `ios/Runner/GoogleService-Info.plist`.
-
-В `ios/Runner/Info.plist` добавьте CFBundleURLTypes → CFBundleURLSchemes с реальным
-REVERSED_CLIENT_ID из нового plist. На macOS передайте реальный CLIENT_ID при запуске:
-`--dart-define=GOOGLE_IOS_CLIENT_ID=...`.
-Если требуется serverClientId, используйте Web OAuth client через GOOGLE_SERVER_CLIENT_ID.
-Идентификаторы не выдуманы и не вставлены в нативные файлы. До завершения настройки
-Google Sign-In на iOS возвращает понятную ошибку конфигурации.
-iOS сборка и проверка native Google flow выполняются на macOS с Xcode и настроенной подписью.
-
-## Проверки и запуск
-
-Кэши разработки можно хранить на D, даже если системный профиль находится на C:
-
-```powershell
+Set-Location 'D:\Workspace\DevCV'
 $env:PUB_CACHE = 'D:\Tools\Caches\pub'
 $env:GRADLE_USER_HOME = 'D:\Tools\Caches\gradle'
 flutter pub get
 dart format .
 flutter analyze
 flutter test
-```
-
-Unit/widget tests используют fake Repository без Firebase backend. Они проверяют validators,
-сериализацию, заполнение профиля, auth/profile providers, защиту маршрутов, формы,
-loading/error/new/data, сохранение вкладок, тему и адаптацию к трём размерам экрана.
-
-Сборку APK и запуск на USB-устройстве выполняет пользователь:
-
-```powershell
 flutter run -d RFGYB1HX2PV
 ```
 
-После настройки Firebase проверьте регистрацию → письмо → подтверждение → вход,
-Google → выход, сброс пароля, создание/обновление собственного профиля и восстановление темы.
-Release подпись Android пока использует debug key шаблона; перед публикацией нужен свой keystore.
+Существующие тесты сохранены и адаптированы к отдельному экрану основной информации.
+Новые mvp_domain_test, mvp_widget_test и resume_pdf_test проверяют длительность,
+валидацию, зарплату, 500 символов, ссылку рабочего проекта на опыт, контакты,
+weighted completion, ResumeConfig, актуальные записи, пустой список, форму опыта,
+выбор записей, Preview, отмену сохранения и генерацию PDF bytes.
+Widget tests используют fake repositories и fake printing platform без прямых запросов в Firebase.
 
-Документация:
-- https://firebase.google.com/docs/auth/flutter/password-auth
-- https://firebase.google.com/docs/auth/flutter/federated-auth
-- https://pub.dev/packages/google_sign_in
-- https://firebase.google.com/docs/firestore/security/rules-conditions
+После отключения Storage flutter analyze --no-pub завершился без замечаний.
+Полный flutter test --no-pub прошёл: 40 тестов.
+storage_optional_test и сценарий Spark в mvp_widget_test проверяют отсутствие Storage-вызовов,
+отключённый пункт фото, старую конфигурацию showPhoto=true, Preview и export без фотографии.
+resume_pdf_test дополнительно проверяет реальную генерацию PDF при выбранном, но отсутствующем фото.
+Нативная сборка, Firebase CRUD и сохранение PDF на телефоне требуют ручной проверки.
 
-## Файлы этого этапа
+Для демонстрационного PDF с фиктивными данными:
 
-Созданы:
+```powershell
+flutter test test/resume_pdf_test.dart --dart-define=WRITE_PDF_SAMPLE=true
+```
 
-- `lib/app/router/app_shell.dart`.
-- `lib/core/errors/app_failure.dart`, `lib/core/utils/validators.dart`,
-  `lib/core/widgets/form_page.dart`, `lib/core/widgets/error_message.dart`.
-- `lib/features/auth/domain/auth_user.dart`, `auth_repository.dart`;
-  `lib/features/auth/data/firebase_auth_repository.dart`, `auth_error_mapper.dart`;
-  `lib/features/auth/presentation/auth_providers.dart`, `auth_fields.dart`,
-  `register_screen.dart`, `forgot_password_screen.dart`, `email_verification_screen.dart`.
-- `lib/features/profile/domain/developer_profile.dart`, `profile_repository.dart`, `profile_completion.dart`;
-  `lib/features/profile/data/firestore_profile_repository.dart`, `profile_mapper.dart`;
-  `lib/features/profile/presentation/profile_providers.dart`, `profile_form.dart`, `unsaved_profile_dialog.dart`.
-- `firestore.rules`.
-- `test/validators_test.dart`, `profile_model_test.dart`, `auth_provider_test.dart`,
-  `profile_provider_test.dart`, `route_guard_test.dart`, `auth_widget_test.dart`,
-  `profile_widget_test.dart`, `test/support/fakes.dart`, `test/support/app_harness.dart`.
+Результат: `output/pdf/DevCV-sample.pdf`. Контрольный A4-пример был визуально проверен на трёх страницах,
+включая кириллицу, казахские символы и длинное описание опыта.
 
-Изменены:
+## Сценарий демонстрации и границы
 
-- `lib/app/app.dart`, `lib/app/di/dependencies.dart`,
-  `lib/app/router/app_router.dart`, `lib/app/router/route_names.dart`.
-- `lib/features/auth/presentation/login_screen.dart`, `splash_screen.dart`;
-  `lib/features/home/presentation/home_screen.dart`;
-  `lib/features/profile/presentation/profile_screen.dart`;
-  `lib/features/settings/presentation/settings_screen.dart`.
-- `pubspec.yaml`, `pubspec.lock`, `firebase.json`, `README.md`, `test/app_test.dart`.
+Войти → Profile → основная информация → контакты → опыт/образование/проект/навыки/язык
+→ предпочтения/о себе → Home → Создать резюме → позиция → разделы → элементы → Preview
+→ Скачать PDF → выбрать папку → открыть файл через файловый менеджер.
+Затем проверить данные собственного UID в Firebase Console и продолжение последней конфигурации.
 
-Остальные существующие тесты сохранены. Firebase options, main.dart, DioClient,
-LocalCacheService и ThemeController не дублируются и не переписываются.
+Не добавлены AI, внешние API, Maps, push logic, DOCX, SMS verification, camera requirement,
+файлы сертификатов, картинки проектов, несколько фото/шаблонов, cloud PDF, analytics и offline-синхронизация.
+Release подпись Android остаётся существующей debug-подписью; публикация приложения в этом этапе не выполняется.

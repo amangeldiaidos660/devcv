@@ -2,6 +2,8 @@ import 'package:devcv/app/app.dart';
 import 'package:devcv/features/auth/presentation/auth_providers.dart';
 import 'package:devcv/features/profile/presentation/profile_providers.dart';
 import 'package:devcv/features/settings/data/preferences_settings_repository.dart';
+import 'package:devcv/features/profile/presentation/entry_providers.dart';
+import 'package:devcv/features/resume/presentation/resume_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +51,10 @@ void main() {
           overrides: [
             authRepositoryProvider.overrideWithValue(auth),
             profileRepositoryProvider.overrideWithValue(profiles),
+            entryRepositoryProvider.overrideWithValue(FakeEntryRepository()),
+            resumeConfigRepositoryProvider.overrideWithValue(
+              FakeResumeRepository(),
+            ),
           ],
           child: DevCvApp(settingsRepository: repository),
         ),

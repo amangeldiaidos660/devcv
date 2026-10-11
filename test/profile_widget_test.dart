@@ -17,10 +17,16 @@ void main() {
     addTearDown(profiles.dispose);
     await pumpDevCv(tester, auth, profiles);
     await tester.pumpAndSettle();
-    expect(find.text('Заполнение базового профиля: 25%'), findsOneWidget);
+    expect(find.text('Профиль заполнен на 10%'), findsOneWidget);
     await openTab(tester, 'Профиль');
-    expect(find.textContaining('Профиль ещё не создан'), findsOneWidget);
     expect(find.text('dev@example.com'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Профиль ещё не создан'),
+      150,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.textContaining('Профиль ещё не создан'), findsOneWidget);
+    await openBasic(tester);
     await tester.ensureVisible(find.text('Сохранить'));
     await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
@@ -43,10 +49,11 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsWidgets);
     profiles.loadGate?.complete();
     await tester.pumpAndSettle();
-    expect(find.text('Заполнение базового профиля: 100%'), findsOneWidget);
+    expect(find.text('Профиль заполнен на 30%'), findsOneWidget);
     await openTab(tester, 'Профиль');
     expect(find.text('Айдос Разработчик'), findsOneWidget);
     expect(find.text('Алматы'), findsOneWidget);
+    await openBasic(tester);
     await tester.tap(field('Дата рождения'));
     await tester.pumpAndSettle();
     final dialog = tester.widget<DatePickerDialog>(
@@ -76,7 +83,7 @@ void main() {
     expect(find.text('Айдос Разработчик'), findsOneWidget);
   });
   testWidgets(
-    'Profile keeps a draft between tabs and disables Save while saving',
+    'Profile preserves the draft after cancelled back and disables Save while saving',
     (tester) async {
       final auth = FakeAuthRepository(user: verifiedUser);
       final profiles = FakeProfileRepository()..saveGate = Completer<void>();
@@ -86,13 +93,14 @@ void main() {
       await pumpDevCv(tester, auth, profiles);
       await tester.pumpAndSettle();
       await openTab(tester, 'Профиль');
+      await openBasic(tester);
       await tester.enterText(field('ФИО'), 'Новое Имя');
-      await tester.tap(find.widgetWithText(NavigationDestination, 'Главная'));
+      await tester.pump();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(find.text('Профиль не сохранён'), findsOneWidget);
-      await tester.tap(find.text('Перейти'));
+      await tester.tap(find.text('Остаться'));
       await tester.pumpAndSettle();
-      await openTab(tester, 'Профиль');
       expect(find.text('Новое Имя'), findsOneWidget);
       await tester.ensureVisible(find.text('Сохранить'));
       await tester.tap(find.text('Сохранить'));
