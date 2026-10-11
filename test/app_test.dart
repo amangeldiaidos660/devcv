@@ -1,33 +1,33 @@
 import 'package:devcv/app/app.dart';
+import 'package:devcv/features/auth/presentation/auth_providers.dart';
+import 'package:devcv/features/profile/presentation/profile_providers.dart';
 import 'package:devcv/features/settings/data/preferences_settings_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/app_harness.dart';
+import 'support/fakes.dart';
+
 void main() {
   testWidgets('Splash opens Login and Home links open each screen', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
-    final repository = PreferencesSettingsRepository(
-      await SharedPreferences.getInstance(),
-    );
-    await tester.pumpWidget(
-      ProviderScope(child: DevCvApp(settingsRepository: repository)),
-    );
+    final auth = FakeAuthRepository();
+    final profiles = FakeProfileRepository();
+    addTearDown(auth.dispose);
+    addTearDown(profiles.dispose);
+    await pumpDevCv(tester, auth, profiles);
     await tester.pumpAndSettle();
-    expect(find.text('Login'), findsOneWidget);
-    await tester.tap(find.text('Explore DevCV'));
-    await tester.pumpAndSettle();
+    expect(find.text('Войти в DevCV'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    await logIn(tester);
     expect(find.text('Developer Profile & Resume Builder'), findsOneWidget);
-
-    for (final title in ['Profile', 'Resume', 'Settings']) {
-      await tester.tap(find.text(title));
-      await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, title), findsOneWidget);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
+    for (final title in ['Профиль', 'Резюме', 'Настройки']) {
+      await openTab(tester, title);
+      expect(find.byType(NavigationBar), findsOneWidget);
+      await openTab(tester, 'Главная');
       expect(find.text('Developer Profile & Resume Builder'), findsOneWidget);
     }
     expect(tester.takeException(), isNull);
@@ -39,16 +39,22 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
     final repository = PreferencesSettingsRepository(preferences);
-
+    final auth = FakeAuthRepository(user: verifiedUser);
+    final profiles = FakeProfileRepository();
+    addTearDown(auth.dispose);
+    addTearDown(profiles.dispose);
     Future<void> launch() async {
       await tester.pumpWidget(
-        ProviderScope(child: DevCvApp(settingsRepository: repository)),
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(auth),
+            profileRepositoryProvider.overrideWithValue(profiles),
+          ],
+          child: DevCvApp(settingsRepository: repository),
+        ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Explore DevCV'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings'));
-      await tester.pumpAndSettle();
+      await openTab(tester, 'Настройки');
     }
 
     await launch();
@@ -64,7 +70,6 @@ void main() {
     );
     await preferences.reload();
     expect(repository.isDarkMode, isTrue);
-
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     await launch();

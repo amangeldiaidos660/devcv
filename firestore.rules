@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.auth.token.email_verified == true;
+    }
+
+    function validProfile(userId) {
+      let data = request.resource.data;
+      return data.keys().hasAll(['uid', 'fullName', 'birthDate', 'city', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'fullName', 'birthDate', 'city', 'email', 'createdAt', 'updatedAt'])
+        && data.uid == userId
+        && data.email == request.auth.token.email
+        && data.fullName is string
+        && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.fullName.matches('.*\\S.*')
+        && data.city is string
+        && data.city.size() >= 2 && data.city.size() <= 120
+        && data.city.matches('.*\\S.*')
+        && data.birthDate is timestamp && data.birthDate <= request.time
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && validProfile(userId)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isOwner(userId) && validProfile(userId)
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+  }
+}

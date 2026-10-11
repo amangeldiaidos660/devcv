@@ -12,7 +12,20 @@
           "package_name": "kz.aidos.devcv"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "39888164968-vgik8nvvlr18j40qrmnu72m55t48lsrt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "kz.aidos.devcv",
+            "certificate_hash": "4ada2193940cceb19585759a20bdfe90f79c332a"
+          }
+        },
+        {
+          "client_id": "39888164968-pdu5hp462f54qeanr8f7tflj4752gfj1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA1G3jUEbADPKkdEkHU-Zdh76qOphR1IEw"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "39888164968-pdu5hp462f54qeanr8f7tflj4752gfj1.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "39888164968-8froio8ppk74o4u534jg7qupur9k5h06.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "kz.aidos.devcv"
+              }
+            }
+          ]
         }
       }
     }

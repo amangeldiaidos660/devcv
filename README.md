@@ -1,105 +1,186 @@
 # DevCV
 
-Developer Profile & Resume Builder. Каркас Flutter-приложения для Android и iOS.
-Идентификатор приложения: `kz.aidos.devcv`.
-
-## Запуск
-
-```powershell
-flutter pub get
-flutter devices
-flutter run -d <device-id>
-```
-
-Android: подключите телефон с отладкой по USB. iOS: сборка на macOS с Xcode,
-выбор команды разработчика и настройка подписи. Минимальные версии:
-Android 7.0 (API 24), iOS 15.0.
-
-```powershell
-flutter analyze
-flutter test
-flutter build apk --debug
-```
-
-Release пока подписывается тестовым ключом шаблона Flutter. Перед публикацией
-нужно настроить собственный keystore и подпись iOS.
+Developer Profile & Resume Builder для Android и iOS.
+Application ID: `kz.aidos.devcv`. Firebase project: `devcv-ac143`.
+Минимальные версии: Android API 24 и iOS 15.
 
 ## Архитектура
 
-- `lib/app`: корень, GetIt, темы Material 3 и именованные маршруты.
-- `lib/core`: Dio, кэш Hive и общие виджеты.
-- `lib/features`: Auth, Home, Profile, Resume и Settings.
-- `settings/domain`: независимый от Flutter контракт SettingsRepository.
-- `settings/data`: реализация через SharedPreferences.
-- `settings/presentation`: Provider-контроллер темы и экран настройки.
+Существующие Firebase initialization, GetIt, DioClient, Hive cache и тема переиспользуются.
 
-Auth, Profile и Resume получат domain/data при реализации соответствующих
-функций. Пустые Repository, модели и use case не создаются. Presentation/data
-зависят от domain; domain не импортирует Flutter, Firebase, Dio или Hive.
-Реализации Repository подключаются в GetIt.
+- `features/auth/domain`: AuthUser и контракт AuthRepository.
+- `features/auth/data`: FirebaseAuthRepository, Google Sign-In 7 и преобразование ошибок.
+- `features/auth/presentation`: Riverpod auth session/actions и формы входа, регистрации, сброса пароля и подтверждения email.
+- `features/profile/domain`: DeveloperProfile, ProfileRepository и расчёт заполнения.
+- `features/profile/data`: FirestoreProfileRepository и ProfileMapper для Firestore/Hive.
+- `features/profile/presentation`: Riverpod profile/actions, форма и состояния loading/error/new/data.
+- `app/router`: один GoRouter, auth redirect и StatefulShellRoute.indexedStack.
+- `app/di`: регистрации существующих сервисов и новых Repository через GetIt.
+- Provider + SharedPreferences продолжают управлять темой. Riverpod управляет Auth/Profile.
 
-Корень находится внутри Riverpod ProviderScope. Riverpod управляет временем
-жизни router через appRouterProvider. Будущие Auth/Profile/Resume/API состояния
-добавляются в presentation соответствующих features. Provider используется
-для ThemeController; тема сохраняется через SettingsRepository.
+Domain не импортирует Firebase, Flutter или Hive. UI вызывает Repository через Riverpod.
+Пароли и Google tokens не сохраняются в Firestore/Hive.
 
-## Навигация
+## Маршруты
 
-Имена в RouteNames: splash, login, home, profile, resume, settings.
-Splash переходит на Login после первого кадра. Explore DevCV открывает Home
-для просмотра каркаса. Profile, Resume и Settings вложены в Home.
+| Доступ | Путь | Имя RouteNames |
+| --- | --- | --- |
+| Public | /splash | splash |
+| Public | /login | login |
+| Public | /register | register |
+| Public | /forgot-password | forgotPassword |
+| Неподтверждённый аккаунт | /verify-email | verifyEmail |
+| Private | /home | home |
+| Private | /profile | profile |
+| Private | /resume | resume |
+| Private | /settings | settings |
 
-При реализации авторизации добавьте централизованный redirect в GoRouter
-и обновление маршрутизатора при изменениях auth state. До этого этапа переход
-из Login не является входом в аккаунт, маршруты доступны без авторизации.
+Splash использует поток Firebase userChanges без искусственной задержки.
+Без сессии private routes перенаправляются на Login; неподтверждённый email — на Verify Email.
+Подтверждённый аккаунт перенаправляется с public screens на Home.
+Нижняя навигация сохраняет состояние четырёх private разделов и не показывается на public screens.
+При уходе из изменённой формы показывается предупреждение; черновик сохраняется при переключении вкладок.
+Resume остаётся заглушкой.
 
-## Firebase
+## Профиль и хранение
 
-Проект: `devcv-ac143`. Android/iOS зарегистрированы с `kz.aidos.devcv`.
-`lib/firebase_options.dart` сгенерирован FlutterFire CLI. main.dart вызывает
-Firebase.initializeApp до открытия Hive и регистрации зависимостей.
-Подключены Core, Auth, Firestore, Messaging, Storage и Crashlytics.
+Коллекция: `users/{firebaseUid}`.
+Поля: uid, fullName, birthDate, city, email, createdAt, updatedAt.
+Документ создаётся при первом сохранении; фиктивные имя/город не добавляются.
+Email берётся из Firebase Auth и не редактируется в форме.
+Дата рождения — Firestore Timestamp; createdAt/updatedAt — server timestamp.
+Сохранение выполняется транзакцией, createdAt сохраняется при обновлении.
 
-Android содержит google-services.json, Gradle-плагины Google Services и
-Crashlytics. iOS содержит GoogleService-Info.plist в ресурсах Runner.
-FCM auto-init и автоматический сбор Crashlytics отключены в нативных настройках.
-Обработчики push, запрос разрешений и пересылка ошибок в Crashlytics появятся
-на следующих этапах. Перед включением Crashlytics на iOS нужно настроить
-загрузку dSYM на macOS через FlutterFire/Xcode.
+Заполнение текущего базового профиля: имя, дата рождения, город и подтверждённый email,
+по 25% за каждый элемент. Формула вынесена в ProfileCompletion для последующего расширения.
 
-Обновление конфигурации (нужны Firebase CLI и FlutterFire CLI):
+После серверного чтения профиль сохраняется в существующий general_cache box с ключом
+`profile:{uid}`. При временной сетевой ошибке допускается чтение этого кэша.
+Профили разных UID изолированы. Сложная offline-синхронизация не добавляется;
+обычные offline capabilities Firestore сохраняются. Настройки темы хранятся в SharedPreferences.
+
+DioClient остаётся без реальных запросов: connect timeout 15 секунд, receive timeout 20 секунд.
+Base URL задаётся через `--dart-define=API_BASE_URL=...`; по умолчанию https://example.com/api/.
+Debug логирование не пишет пароли, тела, заголовки или query-параметры.
+
+## Firebase Console: обязательная настройка
+
+В проекте devcv-ac143:
+
+1. Authentication → Sign-in method: включить Email/Password и Google, указать support email.
+2. Создать базу Cloud Firestore `(default)`, если она ещё не создана.
+3. Применить подготовленные `firestore.rules` через Firebase Console → Firestore → Rules
+   или выполнить из корня проекта:
+
+```powershell
+firebase deploy --only firestore:rules --project devcv-ac143
+```
+
+Правила разрешают только get/create/update собственного `users/{uid}` для подтверждённого аккаунта.
+Они проверяют UID, email из auth token, допустимые поля, даты и server timestamps.
+Чтение всей коллекции, удаление и доступ к чужому профилю не разрешены.
+Правила подготовлены локально; деплой и проверка против реального backend в этом этапе не выполнялись.
+
+Core/Auth/Firestore/Messaging/Storage/Crashlytics уже подключены. Push и загрузка фото не реализованы.
+Автоматические FCM initialization и сбор Crashlytics по-прежнему отключены.
+
+## Google Sign-In: Android
+
+Текущий google-services.json не содержит OAuth-клиентов. Google Sign-In требует обновления конфигурации.
+В Project settings → Android app kz.aidos.devcv добавьте отпечатки существующего debug keystore:
+
+```text
+SHA-1: 4A:DA:21:93:94:0C:CE:B1:95:85:75:9A:20:BD:FE:90:F7:9C:33:2A
+SHA-256: 71:5A:5F:E2:8E:62:6B:CD:34:08:AA:D5:FF:71:8B:DC:57:EC:35:B2:FB:63:2B:D2:36:F4:AD:84:5F:F1:BB:0F
+```
+
+Значения получены из `C:\Users\amang\.android\debug.keystore`; для release нужна отдельная подпись
+и её отпечатки. После включения Google и добавления SHA скачайте новый google-services.json
+и замените `android/app/google-services.json`. В нём должен появиться OAuth client типа 3 (Web).
+Android Google Sign-In использует этот client ID автоматически. При необходимости можно передать
+реальный Web client ID через `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`.
+
+Обновление основной FlutterFire-конфигурации при установленных CLI:
 
 ```powershell
 dart pub global run flutterfire_cli:flutterfire configure --project=devcv-ac143 --platforms=android,ios --android-package-name=kz.aidos.devcv --ios-bundle-id=kz.aidos.devcv
 ```
 
-Firebase-конфигурация содержит клиентские идентификаторы, не серверные ключи.
-Доступ к данным позднее ограничивается Firebase Rules. Правила, провайдеры
-входа, базы данных и Storage bucket этим этапом не создаются.
+## Google Sign-In: iOS
 
-## Сеть и хранение
+Текущий GoogleService-Info.plist не содержит CLIENT_ID/REVERSED_CLIENT_ID.
+После включения Google скачайте новый plist для iOS app kz.aidos.devcv
+и замените `ios/Runner/GoogleService-Info.plist`.
 
-DioClient: connect timeout 15 секунд, receive timeout 20 секунд.
-Base URL задаётся при запуске:
+В `ios/Runner/Info.plist` добавьте CFBundleURLTypes → CFBundleURLSchemes с реальным
+REVERSED_CLIENT_ID из нового plist. На macOS передайте реальный CLIENT_ID при запуске:
+`--dart-define=GOOGLE_IOS_CLIENT_ID=...`.
+Если требуется serverClientId, используйте Web OAuth client через GOOGLE_SERVER_CLIENT_ID.
+Идентификаторы не выдуманы и не вставлены в нативные файлы. До завершения настройки
+Google Sign-In на iOS возвращает понятную ошибку конфигурации.
+iOS сборка и проверка native Google flow выполняются на macOS с Xcode и настроенной подписью.
+
+## Проверки и запуск
+
+Кэши разработки можно хранить на D, даже если системный профиль находится на C:
 
 ```powershell
-flutter run --dart-define=API_BASE_URL=https://your-api.example/api/
+$env:PUB_CACHE = 'D:\Tools\Caches\pub'
+$env:GRADLE_USER_HOME = 'D:\Tools\Caches\gradle'
+flutter pub get
+dart format .
+flutter analyze
+flutter test
 ```
 
-По умолчанию: https://example.com/api/; запросы пока не выполняются.
-Debug-interceptor пишет метод, origin/path и статус без тела, заголовков
-и query-параметров. В release логирование отключено.
+Unit/widget tests используют fake Repository без Firebase backend. Они проверяют validators,
+сериализацию, заполнение профиля, auth/profile providers, защиту маршрутов, формы,
+loading/error/new/data, сохранение вкладок, тему и адаптацию к трём размерам экрана.
 
-LocalCacheService оборачивает Hive box general_cache: read, write, remove,
-clear. Сложные модели потребуют адаптеров Hive. Кэш предназначен для обычных
-данных, не для паролей и токенов. SharedPreferences хранит тему.
+Сборку APK и запуск на USB-устройстве выполняет пользователь:
 
-## Проверки
+```powershell
+flutter run -d RFGYB1HX2PV
+```
 
-Тесты проверяют Splash → Login → Home, открытие разделов и возврат назад,
-переключение и восстановление темы, ошибку её сохранения, сохранность кэша
-после повторного открытия и очистку. UI-тесты запускаются без Firebase
-и сетевых запросов. Нативная инициализация Firebase проверяется отдельно
-при запуске на устройстве.
+После настройки Firebase проверьте регистрацию → письмо → подтверждение → вход,
+Google → выход, сброс пароля, создание/обновление собственного профиля и восстановление темы.
+Release подпись Android пока использует debug key шаблона; перед публикацией нужен свой keystore.
 
-Документация: https://firebase.google.com/docs/flutter/setup
+Документация:
+- https://firebase.google.com/docs/auth/flutter/password-auth
+- https://firebase.google.com/docs/auth/flutter/federated-auth
+- https://pub.dev/packages/google_sign_in
+- https://firebase.google.com/docs/firestore/security/rules-conditions
+
+## Файлы этого этапа
+
+Созданы:
+
+- `lib/app/router/app_shell.dart`.
+- `lib/core/errors/app_failure.dart`, `lib/core/utils/validators.dart`,
+  `lib/core/widgets/form_page.dart`, `lib/core/widgets/error_message.dart`.
+- `lib/features/auth/domain/auth_user.dart`, `auth_repository.dart`;
+  `lib/features/auth/data/firebase_auth_repository.dart`, `auth_error_mapper.dart`;
+  `lib/features/auth/presentation/auth_providers.dart`, `auth_fields.dart`,
+  `register_screen.dart`, `forgot_password_screen.dart`, `email_verification_screen.dart`.
+- `lib/features/profile/domain/developer_profile.dart`, `profile_repository.dart`, `profile_completion.dart`;
+  `lib/features/profile/data/firestore_profile_repository.dart`, `profile_mapper.dart`;
+  `lib/features/profile/presentation/profile_providers.dart`, `profile_form.dart`, `unsaved_profile_dialog.dart`.
+- `firestore.rules`.
+- `test/validators_test.dart`, `profile_model_test.dart`, `auth_provider_test.dart`,
+  `profile_provider_test.dart`, `route_guard_test.dart`, `auth_widget_test.dart`,
+  `profile_widget_test.dart`, `test/support/fakes.dart`, `test/support/app_harness.dart`.
+
+Изменены:
+
+- `lib/app/app.dart`, `lib/app/di/dependencies.dart`,
+  `lib/app/router/app_router.dart`, `lib/app/router/route_names.dart`.
+- `lib/features/auth/presentation/login_screen.dart`, `splash_screen.dart`;
+  `lib/features/home/presentation/home_screen.dart`;
+  `lib/features/profile/presentation/profile_screen.dart`;
+  `lib/features/settings/presentation/settings_screen.dart`.
+- `pubspec.yaml`, `pubspec.lock`, `firebase.json`, `README.md`, `test/app_test.dart`.
+
+Остальные существующие тесты сохранены. Firebase options, main.dart, DioClient,
+LocalCacheService и ThemeController не дублируются и не переписываются.

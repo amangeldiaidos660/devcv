@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart' as ui;
 
 import '../features/settings/domain/settings_repository.dart';
@@ -22,6 +23,9 @@ class DevCvApp extends ConsumerWidget {
       child: ui.Consumer<ThemeController>(
         builder: (context, controller, child) => MaterialApp.router(
           title: 'DevCV',
+          locale: const Locale('ru'),
+          supportedLocales: const [Locale('ru'), Locale('en')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,

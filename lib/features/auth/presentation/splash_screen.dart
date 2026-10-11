@@ -1,35 +1,37 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/router/route_names.dart';
+import '../../../core/widgets/error_message.dart';
+import 'auth_providers.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.goNamed(RouteNames.login);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('DevCV', style: TextStyle(fontSize: 32)),
-          SizedBox(height: 24),
-          CircularProgressIndicator(),
-        ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final error = ref.watch(authSessionProvider).asError?.error;
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('DevCV', style: Theme.of(context).textTheme.headlineLarge),
+                const SizedBox(height: 24),
+                if (error == null)
+                  const CircularProgressIndicator()
+                else
+                  ErrorMessage(
+                    error: error,
+                    onRetry: () => ref.invalidate(authSessionProvider),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
