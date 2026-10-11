@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "39888164968",
+    "project_id": "devcv-ac143",
+    "storage_bucket": "devcv-ac143.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:39888164968:android:7502317c412d334f78c3dd",
+        "android_client_info": {
+          "package_name": "kz.aidos.devcv"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1G3jUEbADPKkdEkHU-Zdh76qOphR1IEw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
